@@ -1,9 +1,8 @@
 name: Package and Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 jobs:
   release:
@@ -12,9 +11,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Package and Release
-        uses: BigWigsMods/packager@v2
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create addon package
+        run: |
+          mkdir -p TricksMD
+          cp TricksMD.toc TricksMD.lua TricksMD/
+          zip -r TricksMD-${{ steps.version.outputs.VERSION }}.zip TricksMD
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v1
         with:
-          args: -z
+          files: TricksMD-${{ steps.version.outputs.VERSION }}.zip
         env:
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
