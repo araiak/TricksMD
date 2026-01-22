@@ -1,0 +1,8 @@
+## Interface: 120000, 120001
+## Title: TricksMD
+## Notes: Automatically manages a macro for Tricks of the Trade or Misdirection targeting the current tank
+## Author: TricksMD
+## Version: 1.0.0
+## SavedVariables: TricksMDDB
+
+TricksMD.lua

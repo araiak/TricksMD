@@ -1,0 +1,6 @@
+package-as: TricksMD
+
+ignore:
+  - .github
+  - .gitignore
+  - README.md
