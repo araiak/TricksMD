@@ -32,16 +32,14 @@ local function Print(msg)
 end
 
 local function GetSpellName()
-    -- Check for Tricks of the Trade (Rogue)
-    local tricksInfo = C_Spell.GetSpellInfo(TRICKS_SPELL_ID)
-    if tricksInfo and IsSpellKnown(TRICKS_SPELL_ID) then
-        return tricksInfo.name, TRICKS_SPELL_ID
-    end
+    local _, classToken = UnitClass("player")
 
-    -- Check for Misdirection (Hunter)
-    local mdInfo = C_Spell.GetSpellInfo(MD_SPELL_ID)
-    if mdInfo and IsSpellKnown(MD_SPELL_ID) then
-        return mdInfo.name, MD_SPELL_ID
+    if classToken == "ROGUE" then
+        local tricksInfo = C_Spell.GetSpellInfo(TRICKS_SPELL_ID)
+        return tricksInfo and tricksInfo.name or "Tricks of the Trade", TRICKS_SPELL_ID
+    elseif classToken == "HUNTER" then
+        local mdInfo = C_Spell.GetSpellInfo(MD_SPELL_ID)
+        return mdInfo and mdInfo.name or "Misdirection", MD_SPELL_ID
     end
 
     return nil, nil
@@ -123,19 +121,15 @@ end
 
 function TricksMD:UpdateMacro()
     local spellName = GetSpellName()
-    if not spellName then
-        return false, "You don't have Tricks of the Trade or Misdirection"
-    end
-
     local tank = self:GetCurrentTank()
     self.currentTank = tank
 
     local macroBody
     if tank then
-        macroBody = string.format("/cast [@%s] %s", tank, spellName)
+        macroBody = string.format("#showtooltip\n/cast [@%s] %s", tank, spellName)
     else
         -- No tank - macro will just cast on current target
-        macroBody = string.format("/cast %s", spellName)
+        macroBody = string.format("#showtooltip\n/cast %s", spellName)
     end
 
     local macroIndex = self:GetMacroIndex()
@@ -239,9 +233,9 @@ end
 
 SLASH_TRICKSMD1 = "/md"
 SlashCmdList["TRICKSMD"] = function(msg)
-    local spellName = GetSpellName()
-    if not spellName then
-        Print("This addon requires a Rogue (Tricks of the Trade) or Hunter (Misdirection)")
+    -- Check if addon is disabled for this class
+    if TricksMD.disabled then
+        Print("Your class doesn't have Misdirection or Tricks of the Trade.")
         return
     end
 
@@ -294,6 +288,9 @@ local function OnEvent(self, event, ...)
                 C_Timer.After(1, function()
                     TricksMD:UpdateMacro()
                 end)
+            else
+                -- Store that addon is disabled for this character
+                TricksMD.disabled = true
             end
 
             frame:UnregisterEvent("ADDON_LOADED")
@@ -302,23 +299,34 @@ local function OnEvent(self, event, ...)
     elseif event == "GROUP_ROSTER_UPDATE" or
            event == "ROLE_CHANGED_INFORM" or
            event == "PLAYER_ROLES_ASSIGNED" then
+        -- Skip if addon is disabled for this class
+        if TricksMD.disabled then return end
+
         -- Update macro when group composition changes
         local success, result = TricksMD:UpdateMacro()
         if success and result then
             -- Only print if tank changed
             if result ~= TricksMD.lastAnnouncedTank then
-                Print("Tank target: " .. result)
+                local msg = "Tank target: " .. result
+                Print(msg)
+                RaidNotice_AddMessage(RaidWarningFrame, msg, ChatTypeInfo["RAID_WARNING"])
                 TricksMD.lastAnnouncedTank = result
             end
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Skip if addon is disabled for this class
+        if TricksMD.disabled then return end
+
         -- Delay to ensure group info is available
         C_Timer.After(2, function()
             TricksMD:UpdateMacro()
         end)
 
     elseif event == "GROUP_LEFT" then
+        -- Skip if addon is disabled for this class
+        if TricksMD.disabled then return end
+
         -- Clear preferred tank when leaving group
         TricksMDDB.preferredTank = nil
         TricksMD.lastAnnouncedTank = nil
