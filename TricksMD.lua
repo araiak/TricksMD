@@ -13,6 +13,7 @@ TricksMD = {}
 TricksMD.tanks = {}
 TricksMD.currentTank = nil
 TricksMD.spellName = nil
+TricksMD.pendingUpdate = false  -- Flag for queued macro updates
 
 -- Initialize saved variables
 TricksMDDB = TricksMDDB or {}
@@ -122,6 +123,17 @@ end
 function TricksMD:UpdateMacro()
     local spellName = GetSpellName()
     local tank = self:GetCurrentTank()
+
+    -- Check for combat lockdown - protected functions cannot be called in combat
+    if InCombatLockdown() then
+        -- Store the pending tank to apply after combat
+        if tank ~= self.currentTank then
+            self.pendingTank = tank
+            self.pendingUpdate = true
+        end
+        return true, self.currentTank  -- Return current state, will update after combat
+    end
+
     self.currentTank = tank
 
     local macroBody
@@ -149,6 +161,7 @@ function TricksMD:UpdateMacro()
         end
     end
 
+    self.pendingUpdate = false
     return true, tank
 end
 
@@ -157,7 +170,9 @@ function TricksMD:SelectTank(name)
     local success, result = self:UpdateMacro()
 
     if success then
-        if result then
+        if self.pendingUpdate then
+            Print("Will target " .. name .. " after combat ends")
+        elseif result then
             Print("Now targeting: " .. result)
         else
             Print("No tanks in group")
@@ -236,6 +251,12 @@ SlashCmdList["TRICKSMD"] = function(msg)
     -- Check if addon is disabled for this class
     if TricksMD.disabled then
         Print("Your class doesn't have Misdirection or Tricks of the Trade.")
+        return
+    end
+
+    -- Block macro changes during combat
+    if InCombatLockdown() then
+        Print("Cannot change tank target during combat.")
         return
     end
 
@@ -331,6 +352,26 @@ local function OnEvent(self, event, ...)
         TricksMDDB.preferredTank = nil
         TricksMD.lastAnnouncedTank = nil
         Print("Left group - tank preference cleared")
+
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat ended - process any pending macro updates
+        if TricksMD.disabled then return end
+
+        if TricksMD.pendingUpdate then
+            local pendingTank = TricksMD.pendingTank
+            TricksMD.pendingTank = nil
+            TricksMD.pendingUpdate = false
+
+            local success, result = TricksMD:UpdateMacro()
+            if success and result then
+                if result ~= TricksMD.lastAnnouncedTank then
+                    local msg = "Tank target: " .. result
+                    Print(msg)
+                    RaidNotice_AddMessage(RaidWarningFrame, msg, ChatTypeInfo["RAID_WARNING"])
+                    TricksMD.lastAnnouncedTank = result
+                end
+            end
+        end
     end
 end
 
@@ -342,3 +383,4 @@ frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ROLE_CHANGED_INFORM")
 frame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 frame:RegisterEvent("GROUP_LEFT")
+frame:RegisterEvent("PLAYER_REGEN_ENABLED")  -- For processing queued updates after combat
